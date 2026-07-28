@@ -111,7 +111,7 @@ async function startTracking() {
           backgroundTitle: 'Supervisor de Líneas — rastreo activo',
           requestPermissions: true,
           stale: false,
-          distanceFilter: 5,
+          distanceFilter: 3,
         },
         (location, error) => {
           if (error) { toast('GPS: ' + error.message); return; }
