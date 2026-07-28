@@ -434,30 +434,41 @@ function capturarGps(cb) {
 
 $('#btnGuardarTramo').addEventListener('click', async () => {
   const codigo = $('#tramoCodigo').value.trim();
-  if (!codigo) { toast('El código del tramo es obligatorio'); return; }
-  const obj = {
-    id: state.editingTramoId || DB.uid(),
-    codigo,
-    nombre: $('#tramoNombre').value.trim(),
-    tipo: $('#tramoTipo').value,
-    facilidad: $('#tramoFacilidad').value,
-    diametro: $('#tramoDiametro').value ? parseFloat($('#tramoDiametro').value) : null,
-    notas: $('#tramoNotas').value.trim(),
-    lat: state.gpsTramo ? state.gpsTramo.lat : null,
-    lng: state.gpsTramo ? state.gpsTramo.lng : null,
-    ruta: state.tracking.points.length >= 2 ? state.tracking.points.slice() : null,
-    createdAt: Date.now(),
-  };
-  // Si no se capturó un punto único pero sí hay recorrido, usamos el primer punto del recorrido.
-  if (obj.lat == null && obj.ruta && obj.ruta.length) {
-    obj.lat = obj.ruta[0].lat;
-    obj.lng = obj.ruta[0].lng;
+  if (!codigo) {
+    toast('Falta el código del tramo (campo obligatorio)');
+    $('#tramoCodigo').style.borderColor = 'var(--danger)';
+    $('#tramoCodigo').focus();
+    return;
   }
-  stopTrackingIfActive();
-  await DB.put('tramos', obj);
-  closeSheet('sheetTramo');
-  toast('Tramo guardado');
-  await reloadAll();
+  $('#tramoCodigo').style.borderColor = '';
+  try {
+    const obj = {
+      id: state.editingTramoId || DB.uid(),
+      codigo,
+      nombre: $('#tramoNombre').value.trim(),
+      tipo: $('#tramoTipo').value,
+      facilidad: $('#tramoFacilidad').value,
+      diametro: $('#tramoDiametro').value ? parseFloat($('#tramoDiametro').value) : null,
+      notas: $('#tramoNotas').value.trim(),
+      lat: state.gpsTramo ? state.gpsTramo.lat : null,
+      lng: state.gpsTramo ? state.gpsTramo.lng : null,
+      ruta: state.tracking.points.length >= 2 ? state.tracking.points.slice() : null,
+      createdAt: Date.now(),
+    };
+    // Si no se capturó un punto único pero sí hay recorrido, usamos el primer punto del recorrido.
+    if (obj.lat == null && obj.ruta && obj.ruta.length) {
+      obj.lat = obj.ruta[0].lat;
+      obj.lng = obj.ruta[0].lng;
+    }
+    stopTrackingIfActive();
+    await DB.put('tramos', obj);
+    closeSheet('sheetTramo');
+    toast('Tramo guardado');
+    await reloadAll();
+  } catch (err) {
+    console.error('Error guardando tramo:', err);
+    toast('No se pudo guardar: ' + (err && err.message ? err.message : err));
+  }
 });
 
 // ---------------- Formulario INSPECCIÓN ----------------
@@ -772,6 +783,15 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });
 }
+
+window.addEventListener('error', (e) => {
+  console.error('Error global:', e.error || e.message);
+  toast('Error: ' + (e.message || 'algo falló, revisa e intenta de nuevo'));
+});
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('Promesa rechazada:', e.reason);
+  toast('Error: ' + (e.reason && e.reason.message ? e.reason.message : 'algo falló, intenta de nuevo'));
+});
 
 // ---------------- Arranque ----------------
 reloadAll();
