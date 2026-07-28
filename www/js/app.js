@@ -682,7 +682,7 @@ function updateLiveMarker(lat, lng, accuracy) {
   if (!state.liveLocation.marker) {
     const icon = L.divIcon({
       className: '',
-      html: '<div class="live-marker"><div class="pulse"></div><div class="dot">🚶</div></div>',
+      html: '<div class="live-marker"><div class="pulse"></div><div class="dot"><svg viewBox="0 0 24 24" fill="#0E1216"><circle cx="12" cy="5" r="2.4"/><path d="M13.5 9h-3a2 2 0 0 0-2 1.7L7.5 15H10l.6-3.2L11 15v6h2v-6l.6-3.2.6 3.2h2.4l-1-4.3A2 2 0 0 0 13.5 9z"/></svg></div></div>',
       iconSize: [26, 26], iconAnchor: [13, 13],
     });
     state.liveLocation.marker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(state.map);
