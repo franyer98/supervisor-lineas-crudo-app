@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#14181C">
+<title>Supervisor de Líneas</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">🛢️</div>
+    <div>
+      <h1>Supervisor de Líneas</h1>
+      <div class="sub">TRONCALES · SUBTRONCALES</div>
+    </div>
+  </div>
+  <div class="status-pill" id="connStatus"><span class="dot"></span><span id="connLabel">Offline-ready</span></div>
+</header>
+
+<main>
+
+  <!-- ============ INICIO ============ -->
+  <section class="view active" id="view-inicio">
+    <div class="kpi-grid">
+      <div class="kpi"><div class="num" id="kpiTramos">0</div><div class="lbl">Tramos</div></div>
+      <div class="kpi amber"><div class="num" id="kpiAbiertos">0</div><div class="lbl">Eventos abiertos</div></div>
+      <div class="kpi ok"><div class="num" id="kpiInspMes">0</div><div class="lbl">Inspec. este mes</div></div>
+    </div>
+
+    <div class="section-heading"><h2>Estado por tramo</h2></div>
+    <div class="pipeline-strip" id="pipelineStrip"></div>
+    <div class="map-legend">
+      <span><i style="background:var(--ok)"></i>OK</span>
+      <span><i style="background:var(--amber)"></i>Observación</span>
+      <span><i style="background:var(--danger)"></i>Fuga/Anomalía</span>
+      <span><i style="background:var(--line)"></i>Sin inspección</span>
+    </div>
+
+    <div class="section-heading"><h2>Actividad reciente</h2></div>
+    <div id="actividadReciente"></div>
+  </section>
+
+  <!-- ============ TRAMOS ============ -->
+  <section class="view" id="view-tramos">
+    <div class="filter-row" id="filtroFacilidad"></div>
+    <div id="listaTramos"></div>
+  </section>
+
+  <!-- ============ MAPA ============ -->
+  <section class="view" id="view-mapa">
+    <div id="map"></div>
+    <div class="map-legend">
+      <span><i style="background:var(--steel)"></i>Tú (en vivo)</span>
+      <span><i style="background:var(--steel)"></i>Tramo / recorrido</span>
+      <span><i style="background:var(--danger)"></i>Evento abierto</span>
+      <span><i style="background:var(--text-faint)"></i>Evento cerrado</span>
+    </div>
+    <p class="map-note">Tu posición (🚶) se actualiza en tiempo real usando el GPS del celular — no necesita internet, solo mientras la pestaña de Mapa esté abierta. Los mapas base (satelital/calles) se guardan automáticamente en el celular a medida que los visitas con señal. Las zonas nunca visitadas en línea se verán en blanco, pero tu ubicación, los tramos y los eventos siempre están disponibles offline.</p>
+  </section>
+
+  <!-- ============ HISTORIAL / REPORTES ============ -->
+  <section class="view" id="view-historial">
+    <div class="filter-row">
+      <button class="filter-chip active" data-hfilter="todos">Todos</button>
+      <button class="filter-chip" data-hfilter="inspecciones">Inspecciones</button>
+      <button class="filter-chip" data-hfilter="eventos">Eventos</button>
+    </div>
+    <button class="btn ghost block" id="btnExportar" style="margin-bottom:12px;">⬇ Exportar historial (CSV)</button>
+    <div id="listaHistorial"></div>
+  </section>
+
+</main>
+
+<button class="fab" id="btnFab" title="Registrar">+</button>
+
+<nav class="bottomnav">
+  <button data-view="inicio" class="active"><span class="ic">🏠</span>Inicio</button>
+  <button data-view="tramos"><span class="ic">📍</span>Tramos</button>
+  <button data-view="mapa"><span class="ic">🗺️</span>Mapa</button>
+  <button data-view="historial"><span class="ic">🗂️</span>Historial</button>
+</nav>
+
+<!-- ============ SHEET: elegir qué registrar ============ -->
+<div class="sheet-overlay" id="sheetElegir">
+  <div class="sheet">
+    <div class="sheet-header"><h2>Registrar</h2><button class="sheet-close" data-close>✕</button></div>
+    <button class="btn block" style="margin-bottom:10px;" data-open="sheetTramo">📍 Nuevo tramo de línea</button>
+    <button class="btn block" style="margin-bottom:10px;" data-open="sheetInspeccion">✅ Nueva inspección / recorrido</button>
+    <button class="btn danger block" data-open="sheetEvento">⚠️ Reportar fuga / anomalía</button>
+  </div>
+</div>
+
+<!-- ============ SHEET: Tramo ============ -->
+<div class="sheet-overlay" id="sheetTramo">
+  <div class="sheet">
+    <div class="sheet-header"><h2 id="tramoFormTitulo">Nuevo tramo</h2><button class="sheet-close" data-close>✕</button></div>
+    <input type="hidden" id="tramoId">
+    <label>Código del tramo</label>
+    <input id="tramoCodigo" placeholder="Ej. CPF1-TR-014">
+    <label>Nombre / descripción</label>
+    <input id="tramoNombre" placeholder="Ej. Troncal CPF-1 a Estación Rubiales">
+    <label>Tipo</label>
+    <select id="tramoTipo">
+      <option value="troncal">Troncal</option>
+      <option value="subtroncal">Subtroncal</option>
+    </select>
+    <label>Facilidad</label>
+    <select id="tramoFacilidad">
+      <option value="CPF-1">CPF-1</option>
+      <option value="CPF-2">CPF-2</option>
+      <option value="Otra">Otra</option>
+    </select>
+    <label>Diámetro (pulg)</label>
+    <input id="tramoDiametro" type="number" step="0.1" placeholder="Ej. 12">
+    <label>Coordenadas (punto único, opcional si grabas el recorrido)</label>
+    <div class="gps-row">
+      <span id="tramoGpsLabel">Sin capturar</span>
+      <button id="btnCapturarGpsTramo">📡 Usar mi ubicación</button>
+    </div>
+
+    <label>Recorrido de la línea</label>
+    <div class="track-panel">
+      <div class="track-stats" id="trackStats">Sin recorrido grabado</div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button type="button" class="btn primary" id="btnIniciarRecorrido">▶ Iniciar recorrido</button>
+        <button type="button" class="btn danger" id="btnDetenerRecorrido" style="display:none;">⏹ Detener</button>
+      </div>
+      <p class="map-note">En la app instalada (APK), el recorrido sigue grabándose aunque bloquees la pantalla o cambies de app — verás una notificación mientras esté activo. En el navegador, la pantalla se mantiene encendida automáticamente mientras grabas.</p>
+    </div>
+
+    <label>Notas</label>
+
+    <textarea id="tramoNotas" rows="2" placeholder="Material, año de instalación, observaciones generales..."></textarea>
+    <button class="btn primary block" id="btnGuardarTramo" style="margin-top:16px;">Guardar tramo</button>
+  </div>
+</div>
+
+<!-- ============ SHEET: Inspección ============ -->
+<div class="sheet-overlay" id="sheetInspeccion">
+  <div class="sheet">
+    <div class="sheet-header"><h2>Nueva inspección</h2><button class="sheet-close" data-close>✕</button></div>
+    <label>Tramo</label>
+    <select id="inspTramo"></select>
+    <label>Inspector</label>
+    <input id="inspInspector" placeholder="Tu nombre">
+    <label>Fecha</label>
+    <input id="inspFecha" type="date">
+
+    <div class="section-heading" style="margin:18px 0 6px;"><h2>Checklist</h2></div>
+    <div id="inspChecklist"></div>
+
+    <label>Fotos</label>
+    <div class="photo-strip" id="inspFotos">
+      <label class="photo-add">＋<input type="file" accept="image/*" capture="environment" id="inspFotoInput" style="display:none;"></label>
+    </div>
+
+    <label>Observaciones generales</label>
+    <textarea id="inspObs" rows="3" placeholder="Detalles adicionales del recorrido..."></textarea>
+
+    <button class="btn primary block" id="btnGuardarInspeccion" style="margin-top:16px;">Guardar inspección</button>
+  </div>
+</div>
+
+<!-- ============ SHEET: Evento / Fuga ============ -->
+<div class="sheet-overlay" id="sheetEvento">
+  <div class="sheet">
+    <div class="sheet-header"><h2>Reportar fuga / anomalía</h2><button class="sheet-close" data-close>✕</button></div>
+    <label>Tramo</label>
+    <select id="evTramo"></select>
+    <label>Tipo</label>
+    <select id="evTipo">
+      <option value="Fuga de crudo">Fuga de crudo</option>
+      <option value="Corrosión">Corrosión</option>
+      <option value="Fisura / grieta">Fisura / grieta</option>
+      <option value="Falla en brida">Falla en brida</option>
+      <option value="Exposición de tubería">Exposición de tubería</option>
+      <option value="Otra anomalía">Otra anomalía</option>
+    </select>
+    <label>Severidad</label>
+    <select id="evSeveridad">
+      <option value="leve">Leve</option>
+      <option value="moderada">Moderada</option>
+      <option value="critica">Crítica</option>
+    </select>
+    <label>Coordenadas del punto</label>
+    <div class="gps-row">
+      <span id="evGpsLabel">Sin capturar</span>
+      <button id="btnCapturarGpsEv">📡 Usar mi ubicación</button>
+    </div>
+    <label>Descripción</label>
+    <textarea id="evDescripcion" rows="3" placeholder="¿Qué observaste? Extensión estimada, afectación al terreno, etc."></textarea>
+    <label>Fotos</label>
+    <div class="photo-strip" id="evFotos">
+      <label class="photo-add">＋<input type="file" accept="image/*" capture="environment" id="evFotoInput" style="display:none;"></label>
+    </div>
+    <button class="btn danger block" id="btnGuardarEvento" style="margin-top:16px;">Guardar reporte</button>
+  </div>
+</div>
+
+<!-- ============ SHEET: Detalle de evento (seguimiento) ============ -->
+<div class="sheet-overlay" id="sheetEventoDetalle">
+  <div class="sheet" id="eventoDetalleContenido"></div>
+</div>
+
+<!-- ============ SHEET: Detalle de tramo ============ -->
+<div class="sheet-overlay" id="sheetTramoDetalle">
+  <div class="sheet" id="tramoDetalleContenido"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/db.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
