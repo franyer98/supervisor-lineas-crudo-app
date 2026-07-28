@@ -26,7 +26,7 @@ let state = {
   gpsTramo: null,
   gpsEv: null,
   tracking: { watchId: null, active: false, points: [], startTs: null, nativeWatcherId: null },
-  liveLocation: { watchId: null, marker: null, accuracyCircle: null },
+  liveLocation: { watchId: null, marker: null, accuracyCircle: null, erroredOnce: false },
   wakeLock: null,
 };
 
@@ -635,14 +635,41 @@ window.cerrarEvento = async function (id) {
 };
 
 // ---------------- MAPA ----------------
+function geoErrorMessage(err) {
+  if (!err) return 'No se pudo obtener tu ubicación';
+  if (err.code === 1) return 'Permiso de ubicación denegado — actívalo en Ajustes > Apps > Supervisor de Líneas > Permisos > Ubicación';
+  if (err.code === 2) return 'Ubicación no disponible ahora mismo (revisa que el GPS esté activado)';
+  if (err.code === 3) return 'GPS tardó demasiado en responder, sigo intentando…';
+  return 'No se pudo obtener tu ubicación: ' + err.message;
+}
+
 function startLiveLocation() {
   if (!navigator.geolocation) { toast('GPS no disponible en este dispositivo'); return; }
   if (state.liveLocation.watchId != null) return; // ya activo
-  state.liveLocation.watchId = navigator.geolocation.watchPosition(
-    (pos) => updateLiveMarker(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-    (err) => { /* silencioso: el mapa sigue funcionando sin el punto en vivo */ },
-    { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 }
-  );
+  state.liveLocation.erroredOnce = false;
+
+  const beginWatch = () => {
+    state.liveLocation.watchId = navigator.geolocation.watchPosition(
+      (pos) => updateLiveMarker(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
+      (err) => {
+        if (!state.liveLocation.erroredOnce) { toast(geoErrorMessage(err)); state.liveLocation.erroredOnce = true; }
+      },
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 }
+    );
+  };
+
+  // En la app nativa, pedimos el permiso de Android explícitamente antes de usar el GPS del WebView.
+  if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()
+      && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+    window.Capacitor.Plugins.Geolocation.requestPermissions()
+      .then((res) => {
+        if (res && (res.location === 'granted' || res.coarseLocation === 'granted')) beginWatch();
+        else toast('Permiso de ubicación no concedido — actívalo en Ajustes > Apps > Supervisor de Líneas');
+      })
+      .catch(() => beginWatch()); // si el plugin falla, igual intentamos con la API del navegador
+  } else {
+    beginWatch();
+  }
 }
 function stopLiveLocation() {
   if (state.liveLocation.watchId != null) navigator.geolocation.clearWatch(state.liveLocation.watchId);
@@ -676,7 +703,7 @@ function initMapIfNeeded() {
   renderMapMarkers();
   navigator.geolocation && navigator.geolocation.getCurrentPosition(
     (pos) => { state.map.setView([pos.coords.latitude, pos.coords.longitude], 13); updateLiveMarker(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy); },
-    () => {}
+    (err) => toast(geoErrorMessage(err))
   );
 }
 
