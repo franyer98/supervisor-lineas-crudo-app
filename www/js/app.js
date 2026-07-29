@@ -154,6 +154,10 @@ $('#btnDetenerRecorrido').addEventListener('click', stopTracking);
 // ---------------- Utilidades ----------------
 function $(sel) { return document.querySelector(sel); }
 function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
+function isSupervisor() {
+  const s = API.getSession();
+  return !!s && s.role === 'supervisor';
+}
 function toast(msg) {
   const t = $('#toast');
   t.textContent = msg;
@@ -225,9 +229,14 @@ $('#btnFab').addEventListener('click', () => openSheet('sheetElegir'));
 
 // ---------------- Carga inicial ----------------
 async function reloadAll() {
-  state.tramos = await DB.getAll('tramos');
-  state.inspecciones = await DB.getAll('inspecciones');
-  state.eventos = await DB.getAll('eventos');
+  try {
+    [state.tramos, state.inspecciones, state.eventos] = await Promise.all([
+      API.tramos.list(), API.inspecciones.list(), API.eventos.list(),
+    ]);
+  } catch (e) {
+    toast(e.message || 'No se pudo cargar la información del servidor');
+    return;
+  }
   renderInicio();
   renderTramos();
   renderHistorial();
@@ -359,8 +368,8 @@ function showTramoDetalle(id) {
     ${eventos.slice(0, 5).map(e => `<div class="card" data-ev-link="${e.id}"><div class="card-row"><div><div class="card-title">${e.tipo}</div><div class="card-meta">${fmtDate(e.createdAt)}</div></div><span class="badge ${e.estado}">${e.estado}</span></div></div>`).join('') || '<div class="card-meta">Sin registros.</div>'}
     ${t.ruta && t.ruta.length >= 2 ? `<button class="btn primary block" style="margin-top:16px;" onclick="reproducirRecorrido('${t.id}')">▶ Ver recorrido caminado</button>
     <button class="btn ghost block" style="margin-top:10px;" onclick="exportarRecorridoGPX('${t.id}')">⬇ Compartir recorrido (GPX)</button>` : ''}
-    <button class="btn block" style="margin-top:10px;" onclick="editarTramo('${t.id}')">✎ Editar / re-grabar recorrido</button>
-    <button class="btn danger block" style="margin-top:10px;" onclick="deleteTramo('${t.id}')">Eliminar tramo</button>
+    ${isSupervisor() ? `<button class="btn block" style="margin-top:10px;" onclick="editarTramo('${t.id}')">✎ Editar / re-grabar recorrido</button>
+    <button class="btn danger block" style="margin-top:10px;" onclick="deleteTramo('${t.id}')">Eliminar tramo</button>` : ''}
   `;
   $all('#tramoDetalleContenido [data-ev-link]').forEach(c => c.addEventListener('click', () => {
     closeSheet('sheetTramoDetalle');
@@ -370,8 +379,10 @@ function showTramoDetalle(id) {
 }
 window.closeSheet = closeSheet;
 window.deleteTramo = async function (id) {
-  if (!confirm('¿Eliminar este tramo? Las inspecciones y eventos asociados no se borrarán.')) return;
-  await DB.remove('tramos', id);
+  if (!confirm('¿Eliminar este tramo? Las inspecciones y eventos asociados también se eliminarán.')) return;
+  try {
+    await API.tramos.remove(id);
+  } catch (e) { toast(e.message); return; }
   closeSheet('sheetTramoDetalle');
   toast('Tramo eliminado');
   await reloadAll();
@@ -445,7 +456,6 @@ $('#btnGuardarTramo').addEventListener('click', async () => {
   $('#tramoCodigo').style.borderColor = '';
   try {
     const obj = {
-      id: state.editingTramoId || DB.uid(),
       codigo,
       nombre: $('#tramoNombre').value.trim(),
       tipo: $('#tramoTipo').value,
@@ -455,7 +465,6 @@ $('#btnGuardarTramo').addEventListener('click', async () => {
       lat: state.gpsTramo ? state.gpsTramo.lat : null,
       lng: state.gpsTramo ? state.gpsTramo.lng : null,
       ruta: state.tracking.points.length >= 2 ? state.tracking.points.slice() : null,
-      createdAt: Date.now(),
     };
     // Si no se capturó un punto único pero sí hay recorrido, usamos el primer punto del recorrido.
     if (obj.lat == null && obj.ruta && obj.ruta.length) {
@@ -463,7 +472,8 @@ $('#btnGuardarTramo').addEventListener('click', async () => {
       obj.lng = obj.ruta[0].lng;
     }
     stopTrackingIfActive();
-    await DB.put('tramos', obj);
+    if (state.editingTramoId) await API.tramos.update(state.editingTramoId, obj);
+    else await API.tramos.create(obj);
     closeSheet('sheetTramo');
     toast('Tramo guardado');
     await reloadAll();
@@ -537,7 +547,6 @@ $('#btnGuardarInspeccion').addEventListener('click', async () => {
     checklist.push({ item: CHECKLIST_ITEMS[idx], estado: sel });
   });
   const obj = {
-    id: DB.uid(),
     tramoId,
     inspector: $('#inspInspector').value.trim(),
     fecha: $('#inspFecha').value || todayISO(),
@@ -545,9 +554,10 @@ $('#btnGuardarInspeccion').addEventListener('click', async () => {
     resultado: hasObs ? 'obs' : 'ok',
     fotos: state.pendingFotosInsp.slice(),
     observaciones: $('#inspObs').value.trim(),
-    createdAt: Date.now(),
   };
-  await DB.put('inspecciones', obj);
+  try {
+    await API.inspecciones.create(obj);
+  } catch (e) { toast(e.message); return; }
   closeSheet('sheetInspeccion');
   toast('Inspección guardada');
   await reloadAll();
@@ -571,7 +581,6 @@ $('#btnGuardarEvento').addEventListener('click', async () => {
   const tramoId = $('#evTramo').value;
   if (!tramoId) { toast('Selecciona un tramo'); return; }
   const obj = {
-    id: DB.uid(),
     tramoId,
     tipo: $('#evTipo').value,
     severidad: $('#evSeveridad').value,
@@ -579,12 +588,10 @@ $('#btnGuardarEvento').addEventListener('click', async () => {
     lng: state.gpsEv ? state.gpsEv.lng : null,
     descripcion: $('#evDescripcion').value.trim(),
     fotos: state.pendingFotosEv.slice(),
-    estado: 'abierto',
-    seguimiento: [],
-    createdAt: Date.now(),
-    closedAt: null,
   };
-  await DB.put('eventos', obj);
+  try {
+    await API.eventos.create(obj);
+  } catch (e) { toast(e.message); return; }
   closeSheet('sheetEvento');
   toast('Reporte guardado');
   await reloadAll();
@@ -605,12 +612,13 @@ function showEventoDetalle(id) {
     <div class="card" style="margin:10px 0;">${e.descripcion || 'Sin descripción.'}</div>
     ${e.fotos && e.fotos.length ? `<div class="photo-strip">${e.fotos.map(f => `<img class="photo-thumb" src="${f}">`).join('')}</div>` : ''}
     <div class="section-heading"><h2>Seguimiento</h2></div>
-    <div id="seguimientoLista">${(e.seguimiento || []).map(s => `<div class="card"><div class="card-meta">${fmtDate(s.fecha)}</div>${s.comentario}</div>`).join('') || '<div class="card-meta">Sin comentarios de seguimiento.</div>'}</div>
+    <div id="seguimientoLista">${(e.seguimiento || []).map(s => `<div class="card"><div class="card-meta">${fmtDate(s.fecha)}${s.autor ? ' · ' + s.autor : ''}</div>${s.comentario}</div>`).join('') || '<div class="card-meta">Sin comentarios de seguimiento.</div>'}</div>
     <textarea id="nuevoSeguimiento" rows="2" placeholder="Agregar comentario de seguimiento..." style="margin-top:10px;"></textarea>
     <button class="btn ghost block" style="margin-top:8px;" onclick="agregarSeguimiento('${e.id}')">Agregar comentario</button>
-    ${e.estado === 'abierto'
+    ${e.estado === 'abierto' && isSupervisor()
       ? `<button class="btn primary block" style="margin-top:10px;" onclick="cerrarEvento('${e.id}')">Marcar como resuelto</button>`
-      : `<div class="card-meta" style="margin-top:10px;">Cerrado el ${fmtDate(e.closedAt)}</div>`}
+      : (e.estado === 'cerrado' ? `<div class="card-meta" style="margin-top:10px;">Cerrado el ${fmtDate(e.closedAt)}</div>` : '')}
+    ${isSupervisor() ? `<button class="btn danger block" style="margin-top:10px;" onclick="eliminarEvento('${e.id}')">Eliminar evento</button>` : ''}
   `;
   openSheet('sheetEventoDetalle');
 }
@@ -618,22 +626,23 @@ window.showEventoDetalle = showEventoDetalle;
 window.agregarSeguimiento = async function (id) {
   const txt = $('#nuevoSeguimiento').value.trim();
   if (!txt) return;
-  const e = await DB.getOne('eventos', id);
-  e.seguimiento = e.seguimiento || [];
-  e.seguimiento.push({ fecha: Date.now(), comentario: txt });
-  await DB.put('eventos', e);
+  try { await API.eventos.addSeguimiento(id, txt); } catch (e) { toast(e.message); return; }
   toast('Comentario agregado');
   await reloadAll();
   showEventoDetalle(id);
 };
 window.cerrarEvento = async function (id) {
-  const e = await DB.getOne('eventos', id);
-  e.estado = 'cerrado';
-  e.closedAt = Date.now();
-  await DB.put('eventos', e);
+  try { await API.eventos.cerrar(id); } catch (e) { toast(e.message); return; }
   toast('Evento marcado como resuelto');
   await reloadAll();
   showEventoDetalle(id);
+};
+window.eliminarEvento = async function (id) {
+  if (!confirm('¿Eliminar este evento?')) return;
+  try { await API.eventos.remove(id); } catch (e) { toast(e.message); return; }
+  closeSheet('sheetEventoDetalle');
+  toast('Evento eliminado');
+  await reloadAll();
 };
 
 // ---------------- Exportar recorrido a GPX (estándar universal de rutas GPS) ----------------
@@ -933,15 +942,13 @@ $('#btnExportar').addEventListener('click', () => {
   toast('CSV exportado');
 });
 
-// ---------------- Service worker & estado de conexión ----------------
+// ---------------- Indicador de conexión ----------------
 function updateConnStatus() {
   const online = navigator.onLine;
-  $('#connLabel').textContent = online ? 'Conectado' : 'Sin conexión';
-  $('#connStatus').classList.toggle('offline', !online);
+  $('#btnLogout').classList.toggle('offline', !online);
 }
 window.addEventListener('online', updateConnStatus);
 window.addEventListener('offline', updateConnStatus);
-updateConnStatus();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -958,5 +965,110 @@ window.addEventListener('unhandledrejection', (e) => {
   toast('Error: ' + (e.reason && e.reason.message ? e.reason.message : 'algo falló, intenta de nuevo'));
 });
 
+// ---------------- Sesión / Login ----------------
+function showApp() {
+  $('#loginScreen').style.display = 'none';
+  $('#appRoot').style.display = '';
+  const s = API.getSession();
+  $('#sessionLabel').textContent = (s.nombre || s.username) + ' · ' + (s.role === 'supervisor' ? 'Supervisor' : 'Inspector');
+  $('#btnAbrirUsuarios').style.display = s.role === 'supervisor' ? '' : 'none';
+  updateConnStatus();
+  reloadAll();
+}
+function showLogin(message) {
+  $('#appRoot').style.display = 'none';
+  $('#loginScreen').style.display = 'flex';
+  $('#loginError').textContent = message || '';
+  $('#loginServerUrl').value = API.getBase();
+}
+
+$('#btnMostrarServidor').addEventListener('click', () => {
+  const row = $('#loginServerRow');
+  row.style.display = row.style.display === 'none' ? '' : 'none';
+});
+$('#loginServerUrl').addEventListener('change', () => {
+  API.setBase($('#loginServerUrl').value.trim());
+});
+
+async function doLogin() {
+  const username = $('#loginUsername').value.trim();
+  const password = $('#loginPassword').value;
+  if (!username || !password) { $('#loginError').textContent = 'Ingresa usuario y contraseña'; return; }
+  $('#btnLogin').textContent = 'Entrando…';
+  try {
+    await API.login(username, password);
+    $('#loginError').textContent = '';
+    $('#loginPassword').value = '';
+    showApp();
+  } catch (e) {
+    $('#loginError').textContent = e.message || 'No se pudo iniciar sesión';
+  } finally {
+    $('#btnLogin').textContent = 'Entrar';
+  }
+}
+$('#btnLogin').addEventListener('click', doLogin);
+$('#loginPassword').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+
+$('#btnLogout').addEventListener('click', () => {
+  if (!confirm('¿Cerrar sesión?')) return;
+  API.logout();
+  showLogin();
+});
+window.addEventListener('sl:session-expired', () => showLogin('Tu sesión expiró, inicia sesión de nuevo'));
+
+// ---------------- Gestión de usuarios (solo supervisor) ----------------
+$('#btnAbrirUsuarios').addEventListener('click', () => { openSheet('sheetUsuarios'); renderUsuarios(); });
+
+async function renderUsuarios() {
+  const list = $('#listaUsuarios');
+  list.innerHTML = '<div class="card-meta">Cargando…</div>';
+  let users;
+  try { users = await API.users.list(); } catch (e) { list.innerHTML = `<div class="card-meta">${e.message}</div>`; return; }
+  const mySession = API.getSession();
+  list.innerHTML = users.map(u => `
+    <div class="user-row">
+      <div>
+        <div class="u-name">${u.nombre || u.username} ${!u.active ? '<span class="badge cerrado">inactivo</span>' : ''}</div>
+        <div class="u-meta">@${u.username} · ${u.role === 'supervisor' ? 'Supervisor' : 'Inspector'}</div>
+      </div>
+      <div class="u-actions">
+        <button data-toggle-role="${u.id}" data-role="${u.role}">${u.role === 'supervisor' ? '↓ Inspector' : '↑ Supervisor'}</button>
+        <button data-toggle-active="${u.id}" data-active="${u.active}">${u.active ? 'Desactivar' : 'Activar'}</button>
+        ${u.username !== mySession.username ? `<button class="danger-txt" data-del-user="${u.id}">Eliminar</button>` : ''}
+      </div>
+    </div>`).join('') || '<div class="card-meta">No hay usuarios.</div>';
+
+  $all('[data-toggle-role]').forEach(b => b.addEventListener('click', async () => {
+    const nuevoRol = b.dataset.role === 'supervisor' ? 'inspector' : 'supervisor';
+    try { await API.users.update(b.dataset.toggleRole, { role: nuevoRol }); toast('Rol actualizado'); renderUsuarios(); }
+    catch (e) { toast(e.message); }
+  }));
+  $all('[data-toggle-active]').forEach(b => b.addEventListener('click', async () => {
+    const nuevoEstado = b.dataset.active !== 'true';
+    try { await API.users.update(b.dataset.toggleActive, { active: nuevoEstado }); toast(nuevoEstado ? 'Usuario activado' : 'Usuario desactivado'); renderUsuarios(); }
+    catch (e) { toast(e.message); }
+  }));
+  $all('[data-del-user]').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('¿Eliminar este usuario? Esta acción no se puede deshacer.')) return;
+    try { await API.users.remove(b.dataset.delUser); toast('Usuario eliminado'); renderUsuarios(); }
+    catch (e) { toast(e.message); }
+  }));
+}
+
+$('#btnCrearUsuario').addEventListener('click', async () => {
+  const nombre = $('#nuevoUsuarioNombre').value.trim();
+  const username = $('#nuevoUsuarioUsername').value.trim().toLowerCase();
+  const password = $('#nuevoUsuarioPassword').value;
+  const role = $('#nuevoUsuarioRol').value;
+  if (!username || !password) { toast('Usuario y contraseña son obligatorios'); return; }
+  if (password.length < 6) { toast('La contraseña debe tener al menos 6 caracteres'); return; }
+  try {
+    await API.users.create({ username, password, nombre, role });
+    toast('Usuario creado');
+    $('#nuevoUsuarioNombre').value = ''; $('#nuevoUsuarioUsername').value = ''; $('#nuevoUsuarioPassword').value = '';
+    renderUsuarios();
+  } catch (e) { toast(e.message); }
+});
+
 // ---------------- Arranque ----------------
-reloadAll();
+if (API.isLoggedIn()) showApp(); else showLogin();
