@@ -136,7 +136,7 @@ function startBrowserWatch() {
       else state.tracking.rechazados++;
       updateTrackStats();
     },
-    (err) => toast('GPS: ' + err.message),
+    (err) => toast(geoErrorMessage(err)),
     { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 }
   );
 }
@@ -164,7 +164,7 @@ async function startTracking() {
           distanceFilter: 3,
         },
         (location, error) => {
-          if (error) { toast('GPS: ' + error.message); return; }
+          if (error) { toast(geoErrorMessage(error.code != null ? error : { message: error.message || 'GPS interrumpido' })); return; }
           if (location) {
             const p = { lat: location.latitude, lng: location.longitude, ts: location.time || Date.now() };
             state.tracking.lastAccuracy = location.accuracy;
@@ -847,7 +847,7 @@ $('#btnReplayClose').addEventListener('click', stopReplay);
 function geoErrorMessage(err) {
   if (!err) return 'No se pudo obtener tu ubicación';
   if (err.code === 1) return 'Permiso de ubicación denegado — actívalo en Ajustes > Apps > Supervisor de Líneas > Permisos > Ubicación';
-  if (err.code === 2) return 'Ubicación no disponible ahora mismo (revisa que el GPS esté activado)';
+  if (err.code === 2) return 'El GPS del celular está apagado o sin señal. Actívalo desde los ajustes rápidos (desliza desde arriba) o en Ajustes > Ubicación';
   if (err.code === 3) return 'GPS tardó demasiado en responder, sigo intentando…';
   return 'No se pudo obtener tu ubicación: ' + err.message;
 }
