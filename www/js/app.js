@@ -25,7 +25,7 @@ let state = {
   pendingFotosEv: [],
   gpsTramo: null,
   gpsEv: null,
-  tracking: { watchId: null, active: false, points: [], startTs: null, nativeWatcherId: null, lastAccuracy: null, rechazados: 0 },
+  tracking: { watchId: null, active: false, points: [], startTs: null, nativeWatcherId: null, lastAccuracy: null, rechazados: 0, timerInterval: null },
   liveLocation: { watchId: null, marker: null, accuracyCircle: null, erroredOnce: false },
   wakeLock: null,
 };
@@ -63,18 +63,31 @@ function aceptarPuntoGPS(nuevo, accuracy) {
   return true;
 }
 
+function fmtDistance(km) {
+  const m = km * 1000;
+  return m < 1000 ? Math.round(m) + ' m' : km.toFixed(2) + ' km';
+}
+function fmtDuration(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
 function updateTrackStats() {
   const el = $('#trackStats');
   const pts = state.tracking.points;
-  const precision = state.tracking.lastAccuracy != null ? ` · precisión ±${Math.round(state.tracking.lastAccuracy)}m` : '';
+  const precision = state.tracking.lastAccuracy != null ? ` · ±${Math.round(state.tracking.lastAccuracy)}m` : '';
   if (state.tracking.active) {
-    const km = routeDistanceKm(pts).toFixed(2);
-    const mins = state.tracking.startTs ? Math.round((Date.now() - state.tracking.startTs) / 60000) : 0;
-    el.textContent = `● Grabando… ${pts.length} puntos · ${km} km · ${mins} min${precision}`;
+    const dist = fmtDistance(routeDistanceKm(pts));
+    const tiempo = state.tracking.startTs ? fmtDuration(Date.now() - state.tracking.startTs) : '0:00';
+    el.textContent = `● ${tiempo} · ${dist} · ${pts.length} puntos${precision}`;
     el.classList.add('recording');
   } else if (pts.length >= 2) {
-    const km = routeDistanceKm(pts).toFixed(2);
-    el.textContent = `Recorrido guardado: ${pts.length} puntos · ${km} km`;
+    const dist = fmtDistance(routeDistanceKm(pts));
+    el.textContent = `Recorrido guardado: ${pts.length} puntos · ${dist}`;
     el.classList.remove('recording');
   } else {
     el.textContent = 'Sin recorrido grabado';
@@ -134,6 +147,8 @@ async function startTracking() {
   state.tracking.startTs = Date.now();
   state.tracking.lastAccuracy = null;
   state.tracking.rechazados = 0;
+  if (state.tracking.timerInterval) clearInterval(state.tracking.timerInterval);
+  state.tracking.timerInterval = setInterval(updateTrackStats, 1000);
   $('#btnIniciarRecorrido').style.display = 'none';
   $('#btnDetenerRecorrido').style.display = '';
 
@@ -173,6 +188,7 @@ async function startTracking() {
   updateTrackStats();
 }
 async function stopTracking() {
+  if (state.tracking.timerInterval) { clearInterval(state.tracking.timerInterval); state.tracking.timerInterval = null; }
   if (state.tracking.nativeWatcherId) {
     try { await window.Capacitor.Plugins.BackgroundGeolocation.removeWatcher({ id: state.tracking.nativeWatcherId }); } catch (e) {}
     state.tracking.nativeWatcherId = null;
