@@ -174,6 +174,7 @@
         <button type="button" class="btn danger" id="btnDetenerRecorrido" style="display:none;">⏹ Detener</button>
       </div>
       <p class="map-note">En la app instalada (APK), el recorrido sigue grabándose aunque bloquees la pantalla o cambies de app — verás una notificación mientras esté activo. En el navegador, la pantalla se mantiene encendida automáticamente mientras grabas.</p>
+      <button type="button" class="login-advanced-toggle" id="btnVerAyudaPermiso" style="margin:6px auto 0;">¿No se graba con pantalla bloqueada? Ver ayuda</button>
     </div>
 
     <label>Notas</label>
@@ -277,6 +278,28 @@
 </div>
 
 </div><!-- /appRoot -->
+
+<!-- ============ SHEET: Ayuda permiso de ubicación en 2do plano ============ -->
+<div class="sheet-overlay" id="sheetPermisoUbicacion">
+  <div class="sheet">
+    <div class="sheet-header"><h2>Activa la ubicación en segundo plano</h2><button class="sheet-close" data-close>✕</button></div>
+    <p style="font-size:14px;line-height:1.5;color:var(--text);">
+      Para que el recorrido siga grabándose con la pantalla bloqueada, Android te pide activar el permiso de ubicación
+      manualmente (es una protección de privacidad del sistema, no se puede activar sola).
+    </p>
+    <div class="card" style="margin:14px 0;">
+      <div class="card-title" style="margin-bottom:8px;">Pasos:</div>
+      <ol style="margin:0;padding-left:18px;font-size:13.5px;line-height:1.9;color:var(--text-dim);">
+        <li>Toca <b style="color:var(--text);">"Abrir Ajustes"</b> abajo</li>
+        <li>Entra a <b style="color:var(--text);">Permisos → Ubicación</b></li>
+        <li>Selecciona <b style="color:var(--text);">"Permitir todo el tiempo"</b></li>
+        <li>Regresa a la app y toca "Iniciar recorrido" de nuevo</li>
+      </ol>
+    </div>
+    <button class="btn primary block" id="btnAbrirAjustesUbicacion">⚙️ Abrir Ajustes</button>
+    <button class="btn ghost block" style="margin-top:10px;" id="btnPermisoEntendido">Ya lo activé, continuar</button>
+  </div>
+</div>
 
 <div class="toast" id="toast"></div>
 

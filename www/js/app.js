@@ -83,6 +83,17 @@ function isNativeBG() {
     && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundGeolocation);
 }
 
+function abrirAjustesUbicacion() {
+  if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.NativeSettings) {
+    window.Capacitor.Plugins.NativeSettings.open({ optionAndroid: 'application_details', optionIOS: 'app' }).catch(() => {});
+  } else {
+    toast('Ve a Ajustes del celular > Apps > Supervisor de Líneas > Permisos > Ubicación');
+  }
+}
+$('#btnAbrirAjustesUbicacion').addEventListener('click', abrirAjustesUbicacion);
+$('#btnPermisoEntendido').addEventListener('click', () => { closeSheet('sheetPermisoUbicacion'); startTracking(); });
+$('#btnVerAyudaPermiso').addEventListener('click', () => openSheet('sheetPermisoUbicacion'));
+
 function startBrowserWatch() {
   if (!navigator.geolocation) { toast('GPS no disponible en este dispositivo'); return; }
   state.tracking.watchId = navigator.geolocation.watchPosition(
@@ -148,7 +159,15 @@ async function stopTracking() {
   updateTrackStats();
   if (state.tracking.points.length >= 2) toast('Recorrido detenido y listo para guardar');
 }
-$('#btnIniciarRecorrido').addEventListener('click', startTracking);
+$('#btnIniciarRecorrido').addEventListener('click', () => {
+  const yaVisto = localStorage.getItem('sl_seen_bg_permission_help');
+  if (isNativeBG() && !yaVisto) {
+    localStorage.setItem('sl_seen_bg_permission_help', '1');
+    openSheet('sheetPermisoUbicacion');
+    return;
+  }
+  startTracking();
+});
 $('#btnDetenerRecorrido').addEventListener('click', stopTracking);
 
 // ---------------- Utilidades ----------------
