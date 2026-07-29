@@ -25,7 +25,7 @@ let state = {
   pendingFotosEv: [],
   gpsTramo: null,
   gpsEv: null,
-  tracking: { watchId: null, active: false, points: [], startTs: null, nativeWatcherId: null },
+  tracking: { watchId: null, active: false, points: [], startTs: null, nativeWatcherId: null, lastAccuracy: null, rechazados: 0 },
   liveLocation: { watchId: null, marker: null, accuracyCircle: null, erroredOnce: false },
   wakeLock: null,
 };
@@ -45,13 +45,32 @@ function routeDistanceKm(points) {
   for (let i = 1; i < points.length; i++) m += haversineMeters(points[i - 1], points[i]);
   return m / 1000;
 }
+
+// Filtro de calidad del GPS: descarta lecturas imprecisas o "saltos" imposibles (rebotes de señal).
+const ACCURACY_THRESHOLD_M = 20; // ignora lecturas con más de 20m de margen de error
+const MAX_SPEED_MPS = 8; // ~29 km/h — de sobra para caminar, filtra teletransportes por rebote de señal
+function aceptarPuntoGPS(nuevo, accuracy) {
+  if (accuracy != null && accuracy > ACCURACY_THRESHOLD_M) return false;
+  const pts = state.tracking.points;
+  if (pts.length) {
+    const last = pts[pts.length - 1];
+    const dt = (nuevo.ts - last.ts) / 1000;
+    if (dt > 0.2) {
+      const speed = haversineMeters(last, nuevo) / dt;
+      if (speed > MAX_SPEED_MPS) return false;
+    }
+  }
+  return true;
+}
+
 function updateTrackStats() {
   const el = $('#trackStats');
   const pts = state.tracking.points;
+  const precision = state.tracking.lastAccuracy != null ? ` · precisión ±${Math.round(state.tracking.lastAccuracy)}m` : '';
   if (state.tracking.active) {
     const km = routeDistanceKm(pts).toFixed(2);
     const mins = state.tracking.startTs ? Math.round((Date.now() - state.tracking.startTs) / 60000) : 0;
-    el.textContent = `● Grabando… ${pts.length} puntos · ${km} km · ${mins} min`;
+    el.textContent = `● Grabando… ${pts.length} puntos · ${km} km · ${mins} min${precision}`;
     el.classList.add('recording');
   } else if (pts.length >= 2) {
     const km = routeDistanceKm(pts).toFixed(2);
@@ -98,7 +117,10 @@ function startBrowserWatch() {
   if (!navigator.geolocation) { toast('GPS no disponible en este dispositivo'); return; }
   state.tracking.watchId = navigator.geolocation.watchPosition(
     (pos) => {
-      state.tracking.points.push({ lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() });
+      const p = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
+      state.tracking.lastAccuracy = pos.coords.accuracy;
+      if (aceptarPuntoGPS(p, pos.coords.accuracy)) state.tracking.points.push(p);
+      else state.tracking.rechazados++;
       updateTrackStats();
     },
     (err) => toast('GPS: ' + err.message),
@@ -110,6 +132,8 @@ async function startTracking() {
   state.tracking.points = [];
   state.tracking.active = true;
   state.tracking.startTs = Date.now();
+  state.tracking.lastAccuracy = null;
+  state.tracking.rechazados = 0;
   $('#btnIniciarRecorrido').style.display = 'none';
   $('#btnDetenerRecorrido').style.display = '';
 
@@ -127,7 +151,10 @@ async function startTracking() {
         (location, error) => {
           if (error) { toast('GPS: ' + error.message); return; }
           if (location) {
-            state.tracking.points.push({ lat: location.latitude, lng: location.longitude, ts: location.time || Date.now() });
+            const p = { lat: location.latitude, lng: location.longitude, ts: location.time || Date.now() };
+            state.tracking.lastAccuracy = location.accuracy;
+            if (aceptarPuntoGPS(p, location.accuracy)) state.tracking.points.push(p);
+            else state.tracking.rechazados++;
             updateTrackStats();
           }
         }
