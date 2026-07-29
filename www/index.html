@@ -58,6 +58,21 @@
   <!-- ============ MAPA ============ -->
   <section class="view" id="view-mapa">
     <div id="map"></div>
+    <div class="replay-bar" id="replayBar" style="display:none;">
+      <div class="replay-top">
+        <div class="replay-info" id="replayInfo">0/0 puntos</div>
+        <button class="replay-close" id="btnReplayClose">✕</button>
+      </div>
+      <div class="replay-progress"><div class="replay-progress-fill" id="replayProgressFill"></div></div>
+      <div class="replay-controls">
+        <button class="replay-play" id="btnReplayPlayPause">⏸</button>
+        <div class="replay-speeds">
+          <button data-speed="1" class="active">1x</button>
+          <button data-speed="4">4x</button>
+          <button data-speed="10">10x</button>
+        </div>
+      </div>
+    </div>
     <div class="map-legend">
       <span><i style="background:var(--ok)"></i>Tú (en vivo)</span>
       <span><i style="background:var(--steel)"></i>Tramo / recorrido</span>

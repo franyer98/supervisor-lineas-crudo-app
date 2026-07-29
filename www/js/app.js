@@ -200,7 +200,7 @@ function showView(name) {
   $('#view-' + name).classList.add('active');
   $all('.bottomnav button').forEach(b => b.classList.toggle('active', b.dataset.view === name));
   if (name === 'mapa') { setTimeout(initMapIfNeeded, 50); startLiveLocation(); }
-  else { stopLiveLocation(); }
+  else { stopLiveLocation(); stopReplay(); }
 }
 $all('.bottomnav button').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
 
@@ -357,7 +357,8 @@ function showTramoDetalle(id) {
     ${inspecciones.slice(0, 5).map(i => `<div class="card"><div class="card-row"><div class="card-meta">${fmtDate(i.createdAt)} · ${i.inspector || ''}</div><span class="badge ${i.resultado}">${i.resultado === 'obs' ? 'Observación' : 'OK'}</span></div></div>`).join('') || '<div class="card-meta">Sin registros.</div>'}
     <div class="section-heading"><h2>Eventos (${eventos.length})</h2></div>
     ${eventos.slice(0, 5).map(e => `<div class="card" data-ev-link="${e.id}"><div class="card-row"><div><div class="card-title">${e.tipo}</div><div class="card-meta">${fmtDate(e.createdAt)}</div></div><span class="badge ${e.estado}">${e.estado}</span></div></div>`).join('') || '<div class="card-meta">Sin registros.</div>'}
-    <button class="btn block" style="margin-top:16px;" onclick="editarTramo('${t.id}')">✎ Editar / re-grabar recorrido</button>
+    ${t.ruta && t.ruta.length >= 2 ? `<button class="btn primary block" style="margin-top:16px;" onclick="reproducirRecorrido('${t.id}')">▶ Ver recorrido caminado</button>` : ''}
+    <button class="btn block" style="margin-top:10px;" onclick="editarTramo('${t.id}')">✎ Editar / re-grabar recorrido</button>
     <button class="btn danger block" style="margin-top:10px;" onclick="deleteTramo('${t.id}')">Eliminar tramo</button>
   `;
   $all('#tramoDetalleContenido [data-ev-link]').forEach(c => c.addEventListener('click', () => {
@@ -633,6 +634,100 @@ window.cerrarEvento = async function (id) {
   await reloadAll();
   showEventoDetalle(id);
 };
+
+// ---------------- Reproducción de recorrido (persona caminando) ----------------
+const PERSON_SVG = '<svg viewBox="0 0 24 24" fill="#0E1216"><circle cx="12" cy="5" r="2.4"/><path d="M13.5 9h-3a2 2 0 0 0-2 1.7L7.5 15H10l.6-3.2L11 15v6h2v-6l.6-3.2.6 3.2h2.4l-1-4.3A2 2 0 0 0 13.5 9z"/></svg>';
+
+state.replay = { active: false, playing: false, points: [], idx: 0, marker: null, polyline: null, speed: 1, raf: null, totalDistKm: 0 };
+
+window.reproducirRecorrido = function (tramoId) {
+  const t = state.tramos.find(x => x.id === tramoId);
+  if (!t || !t.ruta || t.ruta.length < 2) return;
+  closeSheet('sheetTramoDetalle');
+  showView('mapa');
+  setTimeout(() => startReplay(t), 200);
+};
+
+function startReplay(tramo) {
+  stopReplay();
+  initMapIfNeeded();
+  const pts = tramo.ruta;
+  state.replay.active = true;
+  state.replay.points = pts;
+  state.replay.idx = 0;
+  state.replay.totalDistKm = routeDistanceKm(pts);
+
+  const bounds = L.latLngBounds(pts.map(p => [p.lat, p.lng]));
+  state.map.fitBounds(bounds, { padding: [30, 30] });
+
+  state.replay.polyline = L.polyline(pts.map(p => [p.lat, p.lng]), { color: '#F2A541', weight: 5, opacity: 0.9 }).addTo(state.map);
+  const icon = L.divIcon({
+    className: '',
+    html: `<div class="live-marker replay"><div class="pulse"></div><div class="dot">${PERSON_SVG}</div></div>`,
+    iconSize: [26, 26], iconAnchor: [13, 13],
+  });
+  state.replay.marker = L.marker([pts[0].lat, pts[0].lng], { icon, zIndexOffset: 1200 }).addTo(state.map);
+
+  $('#replayBar').style.display = '';
+  $('#btnReplayPlayPause').textContent = '⏸';
+  updateReplayInfo();
+  playReplay();
+}
+
+function stopReplay() {
+  if (state.replay.raf) cancelAnimationFrame(state.replay.raf);
+  if (state.replay.marker) { state.map && state.map.removeLayer(state.replay.marker); }
+  if (state.replay.polyline) { state.map && state.map.removeLayer(state.replay.polyline); }
+  const keepSpeed = state.replay.speed;
+  state.replay = { active: false, playing: false, points: [], idx: 0, marker: null, polyline: null, speed: keepSpeed, raf: null, totalDistKm: 0 };
+  $('#replayBar').style.display = 'none';
+}
+
+function updateReplayInfo() {
+  const r = state.replay;
+  const parcialKm = routeDistanceKm(r.points.slice(0, r.idx + 1));
+  $('#replayInfo').textContent = `${r.idx + 1}/${r.points.length} puntos · ${parcialKm.toFixed(2)}/${r.totalDistKm.toFixed(2)} km`;
+  $('#replayProgressFill').style.width = ((r.idx / (r.points.length - 1)) * 100).toFixed(1) + '%';
+}
+
+function playReplay() {
+  state.replay.playing = true;
+  $('#btnReplayPlayPause').textContent = '⏸';
+  stepReplay();
+}
+function pauseReplay() {
+  state.replay.playing = false;
+  if (state.replay.raf) cancelAnimationFrame(state.replay.raf);
+  $('#btnReplayPlayPause').textContent = '▶';
+}
+function stepReplay() {
+  const r = state.replay;
+  if (!r.active) return;
+  if (r.idx >= r.points.length - 1) { r.playing = false; $('#btnReplayPlayPause').textContent = '↺'; return; }
+  if (!r.playing) return;
+  const from = r.points[r.idx], to = r.points[r.idx + 1];
+  const duration = 900 / r.speed;
+  const start = performance.now();
+  function frame(now) {
+    if (!state.replay.playing) return;
+    const t = Math.min(1, (now - start) / duration);
+    state.replay.marker.setLatLng([from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t]);
+    if (t < 1) { state.replay.raf = requestAnimationFrame(frame); }
+    else { state.replay.idx++; updateReplayInfo(); stepReplay(); }
+  }
+  state.replay.raf = requestAnimationFrame(frame);
+}
+$('#btnReplayPlayPause').addEventListener('click', () => {
+  if (!state.replay.active) return;
+  if (state.replay.idx >= state.replay.points.length - 1) { state.replay.idx = 0; updateReplayInfo(); playReplay(); return; }
+  if (state.replay.playing) pauseReplay(); else playReplay();
+});
+$all('.replay-speeds button').forEach(b => b.addEventListener('click', () => {
+  $all('.replay-speeds button').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  state.replay.speed = parseFloat(b.dataset.speed);
+}));
+$('#btnReplayClose').addEventListener('click', stopReplay);
 
 // ---------------- MAPA ----------------
 function geoErrorMessage(err) {

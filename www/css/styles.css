@@ -271,6 +271,30 @@ main { padding: 16px; max-width: 720px; margin: 0 auto; }
 .map-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .map-note { font-size: 11.5px; color: var(--text-faint); margin-top: 6px; line-height: 1.4; }
 
+.replay-bar {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; margin-top: 10px;
+}
+.replay-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.replay-info { font-family: var(--font-mono); font-size: 12.5px; color: var(--amber); }
+.replay-close { font-size: 16px; color: var(--text-dim); padding: 2px 6px; }
+.replay-progress { height: 5px; background: var(--panel-raised); border-radius: 4px; overflow: hidden; margin-bottom: 12px; }
+.replay-progress-fill { height: 100%; background: var(--amber); border-radius: 4px; transition: width .1s linear; }
+.replay-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.replay-play {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+  background: var(--amber); color: #0E1216; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+}
+.replay-speeds { display: flex; gap: 6px; }
+.replay-speeds button {
+  padding: 7px 12px; border-radius: 20px; font-size: 12px;
+  border: 1px solid var(--line); color: var(--text-dim);
+}
+.replay-speeds button.active { background: var(--amber); border-color: var(--amber); color: #0E1216; }
+.live-marker.replay .dot { background: var(--amber); }
+.live-marker.replay .pulse { background: rgba(242, 165, 65, 0.35); }
+
 /* ---------- Filters ---------- */
 .filter-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 12px; }
 .filter-chip {
