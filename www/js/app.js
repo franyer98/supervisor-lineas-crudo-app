@@ -357,7 +357,8 @@ function showTramoDetalle(id) {
     ${inspecciones.slice(0, 5).map(i => `<div class="card"><div class="card-row"><div class="card-meta">${fmtDate(i.createdAt)} · ${i.inspector || ''}</div><span class="badge ${i.resultado}">${i.resultado === 'obs' ? 'Observación' : 'OK'}</span></div></div>`).join('') || '<div class="card-meta">Sin registros.</div>'}
     <div class="section-heading"><h2>Eventos (${eventos.length})</h2></div>
     ${eventos.slice(0, 5).map(e => `<div class="card" data-ev-link="${e.id}"><div class="card-row"><div><div class="card-title">${e.tipo}</div><div class="card-meta">${fmtDate(e.createdAt)}</div></div><span class="badge ${e.estado}">${e.estado}</span></div></div>`).join('') || '<div class="card-meta">Sin registros.</div>'}
-    ${t.ruta && t.ruta.length >= 2 ? `<button class="btn primary block" style="margin-top:16px;" onclick="reproducirRecorrido('${t.id}')">▶ Ver recorrido caminado</button>` : ''}
+    ${t.ruta && t.ruta.length >= 2 ? `<button class="btn primary block" style="margin-top:16px;" onclick="reproducirRecorrido('${t.id}')">▶ Ver recorrido caminado</button>
+    <button class="btn ghost block" style="margin-top:10px;" onclick="exportarRecorridoGPX('${t.id}')">⬇ Compartir recorrido (GPX)</button>` : ''}
     <button class="btn block" style="margin-top:10px;" onclick="editarTramo('${t.id}')">✎ Editar / re-grabar recorrido</button>
     <button class="btn danger block" style="margin-top:10px;" onclick="deleteTramo('${t.id}')">Eliminar tramo</button>
   `;
@@ -633,6 +634,48 @@ window.cerrarEvento = async function (id) {
   toast('Evento marcado como resuelto');
   await reloadAll();
   showEventoDetalle(id);
+};
+
+// ---------------- Exportar recorrido a GPX (estándar universal de rutas GPS) ----------------
+function escapeXml(s) {
+  return String(s).replace(/[<>&'"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]));
+}
+function buildGPX(t) {
+  const pts = t.ruta.map(p =>
+    `      <trkpt lat="${p.lat}" lon="${p.lng}">${p.ts ? `<time>${new Date(p.ts).toISOString()}</time>` : ''}</trkpt>`
+  ).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Supervisor de Lineas de Crudo" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>${escapeXml(t.codigo)}</name></metadata>
+  <trk>
+    <name>${escapeXml(t.codigo + (t.nombre ? ' - ' + t.nombre : ''))}</name>
+    <trkseg>
+${pts}
+    </trkseg>
+  </trk>
+</gpx>`;
+}
+window.exportarRecorridoGPX = async function (tramoId) {
+  const t = state.tramos.find(x => x.id === tramoId);
+  if (!t || !t.ruta || t.ruta.length < 2) { toast('Este tramo no tiene recorrido grabado'); return; }
+  const gpx = buildGPX(t);
+  const filename = `recorrido_${t.codigo.replace(/[^a-zA-Z0-9_-]/g, '_')}.gpx`;
+  const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+
+  if (navigator.canShare && navigator.share) {
+    try {
+      const file = new File([blob], filename, { type: 'application/gpx+xml' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: `Recorrido ${t.codigo}`, text: `Recorrido GPS del tramo ${t.codigo} (${t.tipo}, ${t.facilidad})` });
+        return;
+      }
+    } catch (e) { if (e.name === 'AbortError') return; /* si falla, seguimos con la descarga directa */ }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+  toast('GPX descargado');
 };
 
 // ---------------- Reproducción de recorrido (persona caminando) ----------------
